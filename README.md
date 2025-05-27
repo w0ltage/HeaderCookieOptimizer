@@ -8,6 +8,13 @@ The "Header & Cookie Optimizer" is a Burp Suite extension designed to help penet
 
 This extension adds a custom tab to Burp Suite for configuration and logging, and a context menu item in the Repeater tool to initiate the optimization process on a selected request.
 
+## Note
+
+This plugin was created live during the talk on "vibecoding" at PHDays 2025.
+
+*   **Talk Recording:** [Watch on YouTube](https://youtu.be/uUhGogya_hM)
+*   **Presentation Slides:** Available on the [@hackthishit Telegram channel](https://t.me/hackthishit)
+
 ## Features
 
 *   **Header Optimization**: Iteratively removes headers (except those specified to be skipped) and checks if the response changes significantly.
