@@ -1,0 +1,59 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Comprehensive Guide for Burp Suite Python Extension Development
+
+This guide consolidates best practices for developing Burp Suite extensions using Python (Jython) with the legacy Extender API.
+
+## 1. Core Development Principles
+- **Python Version:** Use Python 2 syntax (Jython).
+- **API:** Utilize the legacy Burp Extender API. Do not use the Montoya API for Python-based extensions.
+
+## 2. Handling HTTP Requests
+- **Background Threading for Network Operations:**
+    - Network operations (like `callbacks.makeHttpRequest()`) **must** be performed on a background thread (e.g., using the `threading` module).
+    - This prevents UI freezes, as extension code interacting with the UI (e.g., via `ActionListener`) runs on the Swing Event Dispatch Thread (EDT).
+- **HTTP/2 Considerations:**
+    - **Issuing New HTTP/2 Requests ("Kettled" Requests):** When issuing new requests from your extension, you are free to send "kettled" requests using HTTP/2 formatting. This enables you to develop extensions to test for HTTP/2-exclusive vulnerabilities.
+    - **Modifying Existing Kettled Requests:** It is not currently possible for extensions to modify kettled requests that were issued by Burp. The API only allows them to access the normalized, HTTP/1 style request representation for modification purposes.
+    - **Compatibility with `makeHttpRequest`:** Be aware that the legacy `callbacks.makeHttpRequest()` may have better compatibility with HTTP/1.1 formatted request lines. If encountering issues with HTTP/2 requests sent via this method, consider normalizing the request line to HTTP/1.1.
+
+## 3. Custom UI Tabs and Configuration
+This section outlines key considerations when adding a custom UI configuration tab.
+
+### 3.1. Tab Implementation (`ITab`)
+- The main extension class should implement the `ITab` interface.
+- `getTabCaption()`: Returns the display name for the tab.
+- `getUiComponent()`: Returns the main `java.awt.Component` (usually a `JPanel`) for the tab's UI.
+- Register the tab using `callbacks.addSuiteTab(self)` in `registerExtenderCallbacks`.
+
+### 3.2. UI Construction (Swing)
+- Use standard Java Swing components (e.g., `JPanel`, `JLabel`, `JTextField`, `JCheckBox`, `JButton`, `JProgressBar`).
+- Employ Swing layout managers (e.g., `GridBagLayout`, `BorderLayout`) for structuring the UI.
+- Initialize UI components and load initial settings within `registerExtenderCallbacks` or a helper method called from there.
+
+### 3.3. Settings Persistence
+- Define unique string keys for each setting.
+- **Loading Settings:**
+    - Use `callbacks.loadExtensionSetting("YOUR_SETTING_KEY")`.
+    - Load settings during extension initialization. Populate UI fields and provide defaults.
+- **Saving Settings:**
+    - Use `callbacks.saveExtensionSetting("YOUR_SETTING_KEY", value_to_save_as_string)`.
+    - Trigger saving via UI actions (e.g., a "Save Settings" button).
+    - Convert values to strings as needed (e.g., booleans to "True"/"False").
+
+### 3.4. Integrating UI Settings with Background Processing
+- **Accessing Settings:**
+    - **Preferred:** Read UI configuration values in the method that initiates the background thread. Pass these values as arguments to the core processing function.
+    - **Avoid direct UI access from background threads.** If necessary, use `SwingUtilities.invokeLater` to query UI components on the EDT (can complicate logic).
+- **Input Validation:** Validate and parse settings (e.g., string to int, comma-separated lists) before use, handling potential errors.
+
+### 3.5. Updating UI from Background Threads
+- UI components (e.g., `JProgressBar`) **must** be updated on the Swing EDT.
+- Use `javax.swing.SwingUtilities.invokeLater(runnable)` to schedule UI updates.
+    ```python
+    # Example: SwingUtilities.invokeLater(lambda: self._progress_bar.setValue(new_value))
+    ```
+
