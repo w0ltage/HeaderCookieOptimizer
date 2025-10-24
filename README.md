@@ -6,7 +6,7 @@
 
 The "Header & Cookie Optimizer" is a Burp Suite extension designed to help penetration testers identify and remove unnecessary HTTP headers and cookies from requests. By sending modified requests and comparing responses to a baseline, it determines which headers and cookies are essential for a valid server response, potentially reducing the attack surface or identifying verbose client behavior.
 
-This extension adds a custom tab to Burp Suite for configuration and logging, and a context menu item in the Repeater tool to initiate the optimization process on a selected request.
+This Kotlin-based Montoya extension adds a custom tab to Burp Suite for configuration and logging, and a context menu item in the Repeater tool to initiate the optimization process on a selected request.
 
 ## Note
 
@@ -45,8 +45,8 @@ The extension provides a "Header Optimizer" tab in Burp Suite with the following
 
 ## How to Use
 
-1.  Configure Jython in Burp Suite to run Python extensions.
-2.  Install the `header-cookie-optimizer.py` extension file (see Installation section below).
+1.  Build the extension JAR (see Installation section below for details).
+2.  Load the compiled JAR as a Java extension in Burp Suite.
 3.  Navigate to the **Repeater** tool in Burp Suite.
 4.  Select a request you want to optimize.
 5.  Right-click in the request editor pane.
@@ -56,31 +56,26 @@ The extension provides a "Header Optimizer" tab in Burp Suite with the following
 
 ## Installation
 
-To install this Python extension in Burp Suite:
+To install this Kotlin/Java extension in Burp Suite:
 
-1.  **Configure Jython**:
-    *   If you haven't already, you need to configure Burp Suite to use Jython, which allows it to run Python-based extensions.
-    *   Download the Jython standalone JAR file from the [Jython website](https://www.jython.org/download.html).
-    *   In Burp Suite, go to **Extensions > Settings**.
-    *   Under **Python Environment**, click **Select file** next to "Location of Jython standalone JAR file" and select the downloaded Jython JAR file.
-2.  **Install the Custom Extension**:
-    *   Go to **Extensions > Installed** and click the **Add** button.
-    *   In the "Add extension" dialog:
-        *   For **Extension Details**, set the **Extension type** to **Python**.
-        *   Click **Select file** and choose the `header-cookie-optimizer.py` file.
-        *   Optionally, configure where to save standard output and error messages for the extension.
-    *   Click **Next**. Burp Suite will attempt to load the extension.
-    *   Review any messages displayed in the **Output** and **Errors** tabs of the extension tool.
-    *   Click **Close**.
+1.  **Build the extension JAR**:
+    *   Ensure you have a compatible JDK (Java 21 or newer) available in your environment.
+    *   From the project root, run `./gradlew shadowJar` (or `gradlew.bat shadowJar` on Windows).
+    *   The fat JAR will be generated at `build/libs/HeaderCookieOptimizer-1.0.0-all.jar`.
+2.  **Install the compiled extension**:
+    *   In Burp Suite, open **Extensions > Installed** and click **Add**.
+    *   Choose **Java** as the extension type.
+    *   Select the generated JAR file and complete the wizard.
+    *   Monitor the **Output** and **Errors** tabs for any load-time information.
 
-The "Header & Cookie Optimizer" extension should now be installed, enabled, and visible in the **Extensions > Installed** list. A new tab named "Header Optimizer" should also appear in the Burp Suite UI.
+After installation, the "Header Optimizer" suite tab will appear, exposing the configuration panel and log output.
 
 For more general information on installing extensions, refer to the [PortSwigger documentation on manually installing extensions](https://portswigger.net/burp/documentation/desktop/extend-burp/extensions/installing/manual-install).
 
 ## Troubleshooting
 
-*   Ensure Jython is correctly configured.
+*   Ensure Burp Suite can locate a compatible JVM (Java 21+) to run Montoya extensions.
 *   Check the extension's **Output** and **Errors** tabs (within Burp's **Extensions** tool, select the extension, then the respective sub-tabs) for any error messages.
 *   The extension logs its actions to its dedicated "Header Optimizer" tab UI.
 *   If requests are failing, check the Burp Suite **Alerts** tab for general network or HTTP issues.
-*   The `send_request` method in the script attempts to determine the host, port, and protocol (HTTP/HTTPS) from the request headers. Ensure the request being optimized has a valid `Host` header and a correct request line to derive this information.
+*   The extension reuses the request's existing `HttpService`. Make sure the request being optimized has a valid service mapping (e.g., imported from Proxy or Repeater) so outbound requests can be issued successfully.
