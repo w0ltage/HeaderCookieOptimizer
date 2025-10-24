@@ -6,6 +6,7 @@ import burp.api.montoya.http.message.HttpRequestResponse
 import burp.api.montoya.http.message.requests.HttpRequest
 import burp.api.montoya.http.message.responses.HttpResponse
 import burp.api.montoya.http.message.HttpHeader
+import burp.api.montoya.core.Registration
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider
 import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse
@@ -33,6 +34,8 @@ class HeaderCookieOptimizerExtension : BurpExtension, ContextMenuItemsProvider {
     }
 
     private lateinit var api: MontoyaApi
+    private lateinit var suiteTabRegistration: Registration
+    private lateinit var contextMenuRegistration: Registration
 
     private val headersToSkipField = JTextField("Host,Cookie,Content-Length,Content-Type", 30)
     private val maxDiffField = JTextField("5", 5)
@@ -47,8 +50,8 @@ class HeaderCookieOptimizerExtension : BurpExtension, ContextMenuItemsProvider {
         setupUserInterface()
 
         this.api.extension().setName(EXTENSION_NAME)
-        this.api.userInterface().registerSuiteTab(TAB_CAPTION, mainPanel)
-        this.api.userInterface().registerContextMenuItemsProvider(this)
+        suiteTabRegistration = this.api.userInterface().registerSuiteTab(TAB_CAPTION, mainPanel)
+        contextMenuRegistration = this.api.userInterface().registerContextMenuItemsProvider(this)
 
         log("[+] Header & Cookie Optimizer extension loaded successfully!")
         log("[+] Right-click on a request in Repeater and select 'Optimize Headers & Cookies'")
@@ -92,9 +95,13 @@ class HeaderCookieOptimizerExtension : BurpExtension, ContextMenuItemsProvider {
     }
 
     override fun provideMenuItems(event: ContextMenuEvent): List<Component> {
-        val messageEditor = event.messageEditorRequestResponse().orElse(null)
+        if (!event.invocationType().containsHttpRequestResponses()) {
+            return emptyList()
+        }
+
+        val resolvedMessageEditor = event.messageEditorRequestResponse().orElse(null)
         val selectedRequestResponses = event.selectedRequestResponses()
-        val requestResponse = messageEditor?.requestResponse()
+        val requestResponse = resolvedMessageEditor?.requestResponse()
             ?: selectedRequestResponses.firstOrNull()?.also {
                 if (selectedRequestResponses.size > 1) {
                     log("[!] Multiple messages selected, optimizing the first one")
@@ -102,12 +109,21 @@ class HeaderCookieOptimizerExtension : BurpExtension, ContextMenuItemsProvider {
             }
             ?: return emptyList()
 
-        val menuItem = JMenuItem("Optimize Headers & Cookies").apply {
+        val actionItem = JMenuItem(EXTENSION_NAME).apply {
             addActionListener {
-                startOptimization(requestResponse, messageEditor)
+                startOptimization(requestResponse, resolvedMessageEditor)
             }
         }
-        return listOf(menuItem)
+
+        api.logging().logToOutput("Context menu requested from ${describeInvocation(event)}")
+
+        return listOf(actionItem)
+    }
+
+    private fun describeInvocation(event: ContextMenuEvent): String {
+        val toolName = event.toolType().toolName()
+        val location = event.invocationType().name
+        return "$toolName/$location"
     }
 
     private fun startOptimization(

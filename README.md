@@ -50,7 +50,7 @@ The extension provides a "Header Optimizer" tab in Burp Suite with the following
 3.  Navigate to the **Repeater** tool in Burp Suite.
 4.  Select a request you want to optimize.
 5.  Right-click in the request editor pane.
-6.  Choose "**Optimize Headers & Cookies**" from the context menu.
+6.  Choose "**Header & Cookie Optimizer**" from the context menu.
 7.  The optimization process will start, and logs will appear in the "**Header Optimizer**" tab.
 8.  Once complete, the request in the Repeater tab will be updated with the optimized headers and cookies.
 
