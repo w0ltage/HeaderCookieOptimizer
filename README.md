@@ -60,8 +60,8 @@ To install this Kotlin/Java extension in Burp Suite:
 
 1.  **Build the extension JAR**:
     *   Ensure you have a compatible JDK (Java 21 or newer) available in your environment.
-    *   From the project root, run `./gradlew shadowJar` (or `gradlew.bat shadowJar` on Windows).
-    *   The fat JAR will be generated at `build/libs/HeaderCookieOptimizer-1.0.0-all.jar`.
+    *   From the project root, run `./gradlew build` (or `gradlew.bat build` on Windows). This automatically produces the shaded artifact with all runtime dependencies, including the Kotlin standard library.
+    *   The distributable JAR will be generated at `build/libs/HeaderCookieOptimizer-1.0.0.jar`.
 2.  **Install the compiled extension**:
     *   In Burp Suite, open **Extensions > Installed** and click **Add**.
     *   Choose **Java** as the extension type.
@@ -79,3 +79,4 @@ For more general information on installing extensions, refer to the [PortSwigger
 *   The extension logs its actions to its dedicated "Header Optimizer" tab UI.
 *   If requests are failing, check the Burp Suite **Alerts** tab for general network or HTTP issues.
 *   The extension reuses the request's existing `HttpService`. Make sure the request being optimized has a valid service mapping (e.g., imported from Proxy or Repeater) so outbound requests can be issued successfully.
+*   If Burp reports missing Kotlin classes (for example `kotlin.jvm.internal.Intrinsics`), ensure you loaded the `HeaderCookieOptimizer-1.0.0.jar` produced by the Gradle build. That artifact already packages the Kotlin runtime; non-shaded jars will not work.

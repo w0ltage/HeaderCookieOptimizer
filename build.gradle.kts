@@ -1,3 +1,6 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import org.gradle.api.tasks.bundling.Jar
+
 plugins {
     // Provides Kotlin Language Support
     // https://plugins.gradle.org/plugin/org.jetbrains.kotlin.jvm
@@ -28,6 +31,7 @@ repositories {
 }
 
 dependencies {
+    implementation(kotlin("stdlib"))
     testImplementation(kotlin("test"))
 
     // Include the Montoya API from Maven Central:
@@ -43,4 +47,19 @@ tasks.test {
 
 kotlin {
     jvmToolchain(24)
+}
+
+tasks {
+    withType<ShadowJar> {
+        archiveClassifier.set("")
+        mergeServiceFiles()
+    }
+
+    named("build") {
+        dependsOn(named<ShadowJar>("shadowJar"))
+    }
+
+    named<Jar>("jar") {
+        isEnabled = false
+    }
 }
