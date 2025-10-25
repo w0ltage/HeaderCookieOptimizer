@@ -213,161 +213,221 @@ class BurpExtender(IBurpExtender, ITab, IContextMenuFactory, ActionListener):
                 else:
                     self.log("[*] Baseline responses are consistent")
 
-            # Process headers (except the first one which is the request line)
-            request_line = headers.get(0)
-            optimized_headers = ArrayList()
-            optimized_headers.add(request_line)
 
+            # Helper to convert Python list to ArrayList
+            def _to_arraylist(items):
+                array_list = ArrayList()
+                for item in items:
+                    array_list.add(item)
+                return array_list
+
+            # Convert headers to a Python list for easier manipulation
+            headers_list = [headers.get(i) for i in range(headers.size())]
+
+            # Process headers (except the first one which is the request line)
+            request_line = headers_list[0]
             self.log("[*] Processing headers...")
 
-            # Add headers that should not be processed
-            for i in range(1, headers.size()):
-                header = headers.get(i)
+            header_entries = []
+            for idx, header in enumerate(headers_list[1:], start=1):
                 header_name = header.split(":", 1)[0].strip()
-
-                if header_name in headers_to_skip:
+                skip = header_name in headers_to_skip
+                if skip:
                     self.log("    [SKIP] %s" % header_name)
-                    optimized_headers.add(header)
+                header_entries.append(
+                    {"index": idx, "header": header, "name": header_name, "skip": skip}
+                )
 
-            # Process other headers
-            for i in range(1, headers.size()):
-                header = headers.get(i)
-                header_name = header.split(":", 1)[0].strip()
+            candidate_headers = [entry for entry in header_entries if not entry["skip"]]
 
-                if header_name in headers_to_skip:
-                    continue
+            # Cache for header test results to avoid duplicate requests
+            header_test_cache = {}
 
-                # Create a test request without this header
-                test_headers = ArrayList()
-                test_headers.add(request_line)
+            def build_headers_without(excluded_indices):
+                result = [request_line]
+                for entry in header_entries:
+                    if entry["skip"] or entry["index"] not in excluded_indices:
+                        result.append(entry["header"])
+                return result
 
-                for j in range(1, headers.size()):
-                    if j != i:  # Skip the header we're testing
-                        test_headers.add(headers.get(j))
+            def test_header_subset(subset):
+                if not subset:
+                    return True
+                key = frozenset(entry["index"] for entry in subset)
+                if key in header_test_cache:
+                    return header_test_cache[key]
 
-                # Build and send the test request
-                test_request = self._helpers.buildHttpMessage(test_headers, body)
+                excluded = set(key)
+                test_headers_list = build_headers_without(excluded)
+                test_headers = _to_arraylist(test_headers_list)
 
-                # Wait before sending the next request
                 time.sleep(delay_ms / 1000.0)
-
-                # Send the test request
+                test_request = self._helpers.buildHttpMessage(test_headers, body)
                 test_response = self.send_request(test_request)
+
+                names = ", ".join(entry["name"] for entry in subset)
+
                 if test_response is None:
                     self.log(
-                        "[!] Error: Failed to get response for header test: {}".format(
-                            header_name
+                        "[!] Error: Failed to get response for header test subset: {}".format(
+                            names or "<unknown>"
                         )
                     )
-                    # Keep the header if we can't test it
-                    self.log(
-                        "    [KEEP] %s - Could not test, keeping for safety"
-                        % header_name
-                    )
-                    optimized_headers.add(header)
-                    continue
+                    header_test_cache[key] = False
+                    return False
 
-                # Check if the response is significantly different
-                if self.responses_differ(
+                result = not self.responses_differ(
                     baseline_response, test_response, max_diff_percentage
-                ):
+                )
+                header_test_cache[key] = result
+                return result
+
+            def delta_debug(entries):
+                if not entries:
+                    return []
+
+                if test_header_subset(entries):
+                    return []
+
+                if len(entries) == 1:
+                    return entries
+
+                mid = len(entries) // 2
+                required_left = delta_debug(entries[:mid])
+                required_right = delta_debug(entries[mid:])
+                return required_left + required_right
+
+            required_header_entries = delta_debug(candidate_headers)
+            required_header_indices = {entry["index"] for entry in required_header_entries}
+
+            optimized_headers_list = [request_line]
+            for entry in header_entries:
+                if entry["skip"] or entry["index"] in required_header_indices:
+                    optimized_headers_list.append(entry["header"])
+
+            # Log final header decisions
+            for entry in candidate_headers:
+                if entry["index"] in required_header_indices:
                     self.log(
-                        "    [KEEP] %s - Required for correct response" % header_name
+                        "    [KEEP] %s - Required for correct response" % entry["name"]
                     )
-                    optimized_headers.add(header)
                 else:
-                    self.log("    [REMOVE] %s - Not needed" % header_name)
+                    self.log("    [REMOVE] %s - Not needed" % entry["name"])
 
             # Process cookies only after header processing is complete
-            cookie_header = None
-            for i in range(optimized_headers.size()):
-                header = optimized_headers.get(i)
+            cookie_header_index = None
+            for idx, header in enumerate(optimized_headers_list):
                 if header.startswith("Cookie:"):
-                    cookie_header = header
+                    cookie_header_index = idx
                     break
 
             # If there's a Cookie header, process the cookies
-            if cookie_header is not None:
+            if cookie_header_index is not None:
                 self.log("[*] Processing cookies...")
-                cookie_index = optimized_headers.indexOf(cookie_header)
-                cookies_str = cookie_header[7:].strip()  # Remove "Cookie: " prefix
-                cookies = cookies_str.split(";")
+                cookies_str = optimized_headers_list[cookie_header_index][7:].strip()
+                cookies = [c.strip() for c in cookies_str.split(";") if c.strip()]
 
-                # Process each cookie
-                required_cookies = []
-
-                for cookie in cookies:
-                    cookie = cookie.strip()
-                    if not cookie:
-                        continue
-
+                cookie_entries = []
+                for idx, cookie in enumerate(cookies):
                     cookie_name = cookie.split("=", 1)[0].strip()
+                    cookie_entries.append({"index": idx, "cookie": cookie, "name": cookie_name})
 
-                    # Create a test request with this cookie removed
-                    test_cookies = [
-                        c.strip()
-                        for c in cookies
-                        if c.strip() and not c.strip().startswith(cookie_name + "=")
+                cookie_test_cache = {}
+
+                base_headers_for_cookies = list(optimized_headers_list)
+
+                def build_headers_without_cookies(excluded_indices):
+                    remaining_cookies = [
+                        entry["cookie"]
+                        for entry in cookie_entries
+                        if entry["index"] not in excluded_indices
                     ]
 
-                    if not test_cookies:
-                        # If this is the only cookie, we need to check without the Cookie header
-                        test_headers = ArrayList()
-                        for h in optimized_headers:
-                            if not h.startswith("Cookie:"):
-                                test_headers.add(h)
-                    else:
-                        # Build new cookie header with this cookie removed
-                        test_cookie_header = "Cookie: " + "; ".join(test_cookies)
-                        test_headers = ArrayList()
-                        for i, h in enumerate(optimized_headers):
-                            if h.startswith("Cookie:"):
-                                test_headers.add(test_cookie_header)
-                            else:
-                                test_headers.add(h)
+                    headers_copy = []
+                    for i, header in enumerate(base_headers_for_cookies):
+                        if i == cookie_header_index:
+                            if remaining_cookies:
+                                headers_copy.append("Cookie: " + "; ".join(remaining_cookies))
+                        else:
+                            headers_copy.append(header)
 
-                    # Build and send the test request
-                    test_request = self._helpers.buildHttpMessage(test_headers, body)
+                    return headers_copy
 
-                    # Wait before sending the next request
+                def test_cookie_subset(subset):
+                    if not subset:
+                        return True
+
+                    key = frozenset(entry["index"] for entry in subset)
+                    if key in cookie_test_cache:
+                        return cookie_test_cache[key]
+
+                    excluded = set(key)
+                    test_headers_list = build_headers_without_cookies(excluded)
+                    test_headers = _to_arraylist(test_headers_list)
+
                     time.sleep(delay_ms / 1000.0)
-
-                    # Send the test request
+                    test_request = self._helpers.buildHttpMessage(test_headers, body)
                     test_response = self.send_request(test_request)
+
+                    names = ", ".join(entry["name"] for entry in subset)
+
                     if test_response is None:
                         self.log(
-                            "[!] Error: Failed to get response for cookie test: {}".format(
-                                cookie_name
+                            "[!] Error: Failed to get response for cookie test subset: {}".format(
+                                names or "<unknown>"
                             )
                         )
-                        # Keep the cookie if we can't test it
-                        self.log(
-                            "    [KEEP] Cookie: %s - Could not test, keeping for safety"
-                            % cookie_name
-                        )
-                        required_cookies.append(cookie)
-                        continue
+                        cookie_test_cache[key] = False
+                        return False
 
-                    # Check if the response is significantly different
-                    if self.responses_differ(
+                    result = not self.responses_differ(
                         baseline_response, test_response, max_diff_percentage
-                    ):
+                    )
+                    cookie_test_cache[key] = result
+                    return result
+
+                def delta_debug_cookies(entries):
+                    if not entries:
+                        return []
+
+                    if test_cookie_subset(entries):
+                        return []
+
+                    if len(entries) == 1:
+                        return entries
+
+                    mid = len(entries) // 2
+                    required_left = delta_debug_cookies(entries[:mid])
+                    required_right = delta_debug_cookies(entries[mid:])
+                    return required_left + required_right
+
+                required_cookie_entries = delta_debug_cookies(cookie_entries)
+                required_cookie_indices = {entry["index"] for entry in required_cookie_entries}
+
+                optimized_cookies = [
+                    entry["cookie"]
+                    for entry in cookie_entries
+                    if entry["index"] in required_cookie_indices
+                ]
+
+                # Log final cookie decisions
+                for entry in cookie_entries:
+                    if entry["index"] in required_cookie_indices:
                         self.log(
                             "    [KEEP] Cookie: %s - Required for correct response"
-                            % cookie_name
+                            % entry["name"]
                         )
-                        required_cookies.append(cookie)
                     else:
-                        self.log("    [REMOVE] Cookie: %s - Not needed" % cookie_name)
+                        self.log(
+                            "    [REMOVE] Cookie: %s - Not needed" % entry["name"]
+                        )
 
-                # Update the optimized headers with the new cookie header
-                if required_cookies:
-                    new_cookie_header = "Cookie: " + "; ".join(required_cookies)
-                    optimized_headers.set(cookie_index, new_cookie_header)
+                if optimized_cookies:
+                    optimized_headers_list[cookie_header_index] = "Cookie: " + "; ".join(optimized_cookies)
                 else:
-                    # No cookies required, remove the Cookie header
-                    optimized_headers.remove(cookie_index)
+                    del optimized_headers_list[cookie_header_index]
 
+            optimized_headers = _to_arraylist(optimized_headers_list)
             # Build the final optimized request
             optimized_request = self._helpers.buildHttpMessage(optimized_headers, body)
 
